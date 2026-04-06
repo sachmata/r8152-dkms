@@ -4,21 +4,32 @@ AUR package for the Realtek r8152 out-of-tree USB Ethernet driver (v2.21.4) with
 
 ## Supported chipsets
 
-- RTL8152B — USB 2.0 100Mbps
-- RTL8153 / RTL8153B — USB 3.0 Gigabit
-- RTL8154 / RTL8154B — USB 3.0 Gigabit
-- RTL8156 / RTL8156B(G) — USB 3.0 2.5G Gigabit
-- RTL8157 — USB 3.0 5G Gigabit
+- RTL8152B — USB 2.0 100 Mbps
+- RTL8153 / RTL8153B — USB 3.0 1 Gbps
+- RTL8154 / RTL8154B — USB 3.0 1 Gbps
+- RTL8156 / RTL8156B(G) — USB 3.0 2.5 Gbps
+- RTL8157 — USB 3.0 5 Gbps
 
 Covers adapters from Realtek, Lenovo, Samsung, Microsoft, TP-Link, Nvidia, and Linksys.
 
 ## Why this package
 
-The upstream Realtek driver (from [realtek-r8152-linux](https://github.com/wget/realtek-r8152-linux)) is advertised for kernels up to 6.17. In practice the driver compiles on newer kernels (tested on 6.19) since the compatibility layer already handles all API changes through 6.16. However, the driver has several stability issues in error handling and power management paths that can cause link flaps, hangs after suspend/resume, and potential use-after-free on hot-unplug.
+The upstream Realtek driver (from [realtek-r8152-linux](https://github.com/wget/realtek-r8152-linux)) is advertised for kernels up to 6.17. As of driver v2.21.4, the compatibility layer already handles all API changes through 6.16, so the driver compiles on newer kernels (tested through 6.19 as of April 2026). However, the driver has several stability issues in error handling and power management paths that can cause link flaps, hangs after suspend/resume, and potential use-after-free on hot-unplug.
 
 This package applies a patch to fix those issues and adds configuration for reliable operation on modern Arch-based distributions (including CachyOS and other clang-built kernels).
 
 ## Stability fixes (stability-fixes.patch)
+
+The patch addresses five categories of issues in the upstream driver:
+
+- **Link state error handling** — `set_carrier()` now checks the return value of `enable()`/`disable()` and triggers a USB reset on failure, instead of silently marking the link as up on uninitialized hardware.
+- **Interrupt URB resubmission** — resume and reset paths (`rtl8152_runtime_resume`, `rtl8152_system_resume`, `rtl8152_post_reset`) now check the return value of `usb_submit_urb()` for the interrupt URB. A silent failure here would permanently stop link change detection.
+- **Missing workqueue cancellation** — `rtl8152_disconnect()` now cancels `tp->schedule` before `tp->hw_phy_work`, preventing a use-after-free if a previously-scheduled work item fires during teardown.
+- **RX bulk endpoint errors** — unknown USB errors in `read_bulk_callback()` no longer fall through to unconditional URB resubmission. `-EPIPE` triggers a device reset, `-EOVERFLOW` and `-EILSEQ` are logged and resubmitted.
+- **Runtime suspend race** — `WORK_ENABLE` is now cleared immediately after the suspend decision (instead of much later), closing a window where `intr_callback()` could schedule new work on a device mid-suspend.
+
+<details>
+<summary>Detailed technical analysis</summary>
 
 ### Link state error handling (`set_carrier`)
 
@@ -46,7 +57,9 @@ Unknown USB errors in `read_bulk_callback()` fell through to unconditional URB r
 
 In `rtl8152_runtime_suspend()`, `SELECTIVE_SUSPEND` was set early but `WORK_ENABLE` was cleared much later. During that window, `intr_callback()` could see `WORK_ENABLE` still set and schedule new work on a device that's mid-suspend. The patch moves the `WORK_ENABLE` clear and `usb_kill_urb(tp->intr_urb)` to immediately after the suspend decision, closing the race window. The error recovery path now properly restores both flags and resubmits the interrupt URB.
 
-## Additional package improvements
+</details>
+
+## Package configuration
 
 ### DKMS clang/LLVM auto-detection (`dkms.conf`)
 
@@ -74,10 +87,34 @@ cd r8152-dkms
 makepkg -si
 ```
 
-Or with an AUR helper:
+Verify the module is installed and loaded:
 
 ```bash
-paru -S r8152-dkms   # if published to AUR
+dkms status r8152
+modinfo r8152 | head -5
+```
+
+## Uninstall
+
+```bash
+sudo dkms remove r8152/2.21.4 --all
+sudo pacman -R r8152-dkms
+```
+
+## Troubleshooting
+
+If the adapter stops working after suspend or shows link issues:
+
+```bash
+# Check driver messages
+dmesg | grep r8152
+
+# Verify the out-of-tree module is loaded (not the in-kernel one)
+modinfo r8152 | grep filename
+# Should show /lib/modules/.../updates/dkms/r8152.ko, not .../kernel/drivers/...
+
+# Force a module reload
+sudo modprobe -r r8152 && sudo modprobe r8152
 ```
 
 ## Files
