@@ -26,7 +26,7 @@ The patch addresses five categories of issues in the upstream driver:
 - **Interrupt URB resubmission** — resume and reset paths (`rtl8152_runtime_resume`, `rtl8152_system_resume`, `rtl8152_post_reset`) now check the return value of `usb_submit_urb()` for the interrupt URB. A silent failure here would permanently stop link change detection.
 - **Missing workqueue cancellation** — `rtl8152_disconnect()` now cancels `tp->schedule` before `tp->hw_phy_work`, preventing a use-after-free if a previously-scheduled work item fires during teardown.
 - **RX bulk endpoint errors** — unknown USB errors in `read_bulk_callback()` no longer fall through to unconditional URB resubmission. `-EPIPE` triggers a device reset, `-EOVERFLOW` and `-EILSEQ` are logged and resubmitted.
-- **Runtime suspend race** — `WORK_ENABLE` is now cleared immediately after the suspend decision (instead of much later), closing a window where `intr_callback()` could schedule new work on a device mid-suspend.
+- **Runtime suspend race** — `WORK_ENABLE` is now cleared immediately after the suspend decision (instead of much later), closing a window where `intr_callback()` could schedule new work on a device mid-suspend. The error recovery path also checks the interrupt URB resubmission return value.
 
 <details>
 <summary>Detailed technical analysis</summary>
