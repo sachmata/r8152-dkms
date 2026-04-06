@@ -1,0 +1,13 @@
+post_install() {
+    echo "==> To use the out-of-tree r8152 module immediately without rebooting:"
+    echo "      sudo modprobe -r r8152 cdc_ncm r8153_ecm 2>/dev/null; sudo modprobe r8152"
+    echo "==> The DKMS module will rebuild automatically on kernel updates."
+}
+
+post_upgrade() {
+    post_install
+}
+
+post_remove() {
+    echo "==> You may need to reboot for the in-kernel r8152 module to take over."
+}

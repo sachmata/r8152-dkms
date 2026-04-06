@@ -11,6 +11,7 @@ url='http://www.realtek.com'
 license=('GPL-2.0-only')
 arch=('i686' 'x86_64' 'aarch64')
 depends=('glibc' 'dkms')
+install=${pkgname}.install
 conflicts=("${_pkgbase}")
 optdepends=('linux-headers: Build the module for Arch kernel'
             'linux-lts-headers: Build the module for LTS Arch kernel')
@@ -25,7 +26,7 @@ sha512sums=('6617cf7cb50fd35b97b5e3f2e47118f30af06654a809bf6b35d24a039591ab960b5
             '04106a1c3c260a9d3626eca83bd28d073d4c19f1e69b25f06ce115e3dccde678b99d0e41ce7d1adf3520c80923f6804c47a53207325ed7faa0cbe712367f80d4'
             '84f4c05f19e044d7a6a74d31f22c9999b6625e1876e2d4444f62f3f968f3dcc8b7e7ced9361982cd1cd67dca7c525111dbe617b6732e6614e39dd2c2f13c5246'
             'bb83aa24358de0d93406b23936d930f3ec66041c8211bbcebf8b50e9a8ac45efda9d52900aba10a4bff4396a22dce3e3e74f426dea733c86389fcb24cf6ebf03'
-            '30ffac51959b8d5f48ebab3bc83e1f4981550633d35a79dc2fc01b2a26b0756ec9a99e9d805c94ef66d1f8a787eead1871fd391b962e17ac957994b65712f545')
+            'f00574eb5e79bca7164305c36260995e5973ee4d4535ebc98940da218a45ea63375aed3c9c985b26354c19f5c327c0b9a7698004b3817417f2784e4ccad66517')
 
 prepare() {
     cd "realtek-${_pkgbase}-linux-${pkgver}"
