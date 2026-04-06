@@ -1,0 +1,168 @@
+diff --git a/r8152.c b/r8152.c
+index aa0ca81..1aaf936 100644
+--- a/r8152.c
++++ b/r8152.c
+@@ -2379,6 +2379,22 @@ static void read_bulk_callback(struct urb *urb)
+ 			netif_warn(tp, rx_err, netdev,
+ 				   "maybe reset is needed?\n");
+ 		break;
++	case -EOVERFLOW:
++		if (net_ratelimit())
++			netif_warn(tp, rx_err, netdev,
++				   "Rx overflow\n");
++		break;
++	case -EPIPE:
++		if (net_ratelimit())
++			netif_warn(tp, rx_err, netdev,
++				   "Rx endpoint halted, resetting\n");
++		usb_queue_reset_device(tp->intf);
++		return;
++	case -EILSEQ:
++		if (net_ratelimit())
++			netif_warn(tp, rx_err, netdev,
++				   "Rx CRC/bitstuff error\n");
++		break;
+ 	default:
+ 		if (net_ratelimit())
+ 			netif_warn(tp, rx_err, netdev,
+@@ -12665,12 +12681,20 @@ static void set_carrier(struct r8152 *tp)
+ 	struct net_device *netdev = tp->netdev;
+ 	struct napi_struct *napi = &tp->napi;
+ 	u16 speed;
++	int ret;
+ 
+ 	speed = rtl8152_get_speed(tp);
+ 
+ 	if (speed & LINK_STATUS) {
+ 		if (!netif_carrier_ok(netdev)) {
+-			tp->rtl_ops.enable(tp);
++			ret = tp->rtl_ops.enable(tp);
++			if (ret < 0) {
++				netif_err(tp, link, netdev,
++					  "enable failed (%d), resetting\n",
++					  ret);
++				usb_queue_reset_device(tp->intf);
++				return;
++			}
+ 			netif_stop_queue(netdev);
+ 			napi_disable(napi);
+ 			netif_carrier_on(netdev);
+@@ -12688,7 +12712,10 @@ static void set_carrier(struct r8152 *tp)
+ 			netif_carrier_off(netdev);
+ 			tasklet_disable(&tp->tx_tl);
+ 			napi_disable(napi);
+-			tp->rtl_ops.disable(tp);
++			ret = tp->rtl_ops.disable(tp);
++			if (ret < 0)
++				netif_warn(tp, link, netdev,
++					   "disable failed (%d)\n", ret);
+ 			napi_enable(napi);
+ 			tasklet_enable(&tp->tx_tl);
+ 			netif_info(tp, link, netdev, "carrier off\n");
+@@ -28956,6 +28983,7 @@ static int rtl8152_post_reset(struct usb_interface *intf)
+ 	struct r8152 *tp = usb_get_intfdata(intf);
+ 	struct net_device *netdev;
+ 	struct sockaddr_storage ss;
++	int ret;
+ 
+ 	if (!tp)
+ 		return 0;
+@@ -28991,7 +29019,10 @@ static int rtl8152_post_reset(struct usb_interface *intf)
+ 	napi_enable(&tp->napi);
+ 	tasklet_enable(&tp->tx_tl);
+ 	netif_wake_queue(netdev);
+-	usb_submit_urb(tp->intr_urb, GFP_KERNEL);
++	ret = usb_submit_urb(tp->intr_urb, GFP_KERNEL);
++	if (ret)
++		netif_warn(tp, ifup, netdev,
++			   "intr_urb submit failed: %d\n", ret);
+ 
+ 	if (!list_empty(&tp->rx_done))
+ 		napi_schedule(&tp->napi);
+@@ -29025,6 +29056,7 @@ static bool delay_autosuspend(struct r8152 *tp)
+ static int rtl8152_runtime_resume(struct r8152 *tp)
+ {
+ 	struct net_device *netdev = tp->netdev;
++	int ret;
+ 
+ 	if (netif_running(netdev) && netdev->flags & IFF_UP) {
+ 		struct napi_struct *napi = &tp->napi;
+@@ -29055,7 +29087,10 @@ static int rtl8152_runtime_resume(struct r8152 *tp)
+ 			local_bh_enable();
+ 		}
+ 
+-		usb_submit_urb(tp->intr_urb, GFP_NOIO);
++		ret = usb_submit_urb(tp->intr_urb, GFP_NOIO);
++		if (ret)
++			netif_warn(tp, ifup, netdev,
++				   "intr_urb submit failed: %d\n", ret);
+ 	} else {
+ 		if (netdev->flags & IFF_UP)
+ 			tp->rtl_ops.autosuspend_en(tp, false);
+@@ -29070,6 +29105,7 @@ static int rtl8152_runtime_resume(struct r8152 *tp)
+ static int rtl8152_system_resume(struct r8152 *tp)
+ {
+ 	struct net_device *netdev = tp->netdev;
++	int ret;
+ 
+ 	netif_device_attach(netdev);
+ 
+@@ -29082,7 +29118,10 @@ static int rtl8152_system_resume(struct r8152 *tp)
+ 		if (test_and_clear_bit(RECOVER_SPEED, &tp->flags))
+ 			rtl8152_set_speed(tp, tp->autoneg, tp->speed,
+ 					  tp->duplex, tp->advertising);
+-		usb_submit_urb(tp->intr_urb, GFP_NOIO);
++		ret = usb_submit_urb(tp->intr_urb, GFP_NOIO);
++		if (ret)
++			netif_warn(tp, ifup, netdev,
++				   "intr_urb submit failed: %d\n", ret);
+ 	}
+ 
+ 	return 0;
+@@ -29102,6 +29141,15 @@ static int rtl8152_runtime_suspend(struct r8152 *tp)
+ 	if (netif_running(netdev) && test_bit(WORK_ENABLE, &tp->flags)) {
+ 		u32 rcr = 0;
+ 
++		/* Clear WORK_ENABLE and kill the interrupt URB early to
++		 * prevent intr_callback from scheduling new work while
++		 * we are suspending.
++		 */
++		smp_mb__before_atomic();
++		clear_bit(WORK_ENABLE, &tp->flags);
++		smp_mb__after_atomic();
++		usb_kill_urb(tp->intr_urb);
++
+ 		if (netif_carrier_ok(netdev)) {
+ 			u32 ocp_data;
+ 
+@@ -29123,19 +29171,17 @@ static int rtl8152_runtime_suspend(struct r8152 *tp)
+ out3:
+ 				ocp_write_dword(tp, MCU_TYPE_PLA, PLA_RCR, rcr);
+ out2:
++				set_bit(WORK_ENABLE, &tp->flags);
++				smp_mb__after_atomic();
+ 				clear_bit(SELECTIVE_SUSPEND, &tp->flags);
+ 				smp_mb__after_atomic();
++				usb_submit_urb(tp->intr_urb, GFP_NOIO);
+ 				if (ret >= 0)
+ 					ret = -EBUSY;
+ 				goto out1;
+ 			}
+ 		}
+ 
+-		smp_mb__before_atomic();
+-		clear_bit(WORK_ENABLE, &tp->flags);
+-		smp_mb__after_atomic();
+-		usb_kill_urb(tp->intr_urb);
+-
+ 		tp->rtl_ops.autosuspend_en(tp, true);
+ 
+ 		if (netif_carrier_ok(netdev)) {
+@@ -32535,6 +32581,7 @@ static void rtl8152_disconnect(struct usb_interface *intf)
+ 		unregister_netdev(netdev);
+ 		netif_napi_del(&tp->napi);
+ 		tasklet_kill(&tp->tx_tl);
++		cancel_delayed_work_sync(&tp->schedule);
+ 		cancel_delayed_work_sync(&tp->hw_phy_work);
+ 		if (tp->rtl_ops.unload)
+ 			tp->rtl_ops.unload(tp);

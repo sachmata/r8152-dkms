@@ -1,0 +1,14 @@
+# Disable USB autosuspend for Realtek 2.5G USB NICs (RTL8156/RTL8156B/RTL8157).
+# The r8152 driver's runtime suspend/resume paths have known fragility with
+# these chipsets, and autosuspend can cause link detection failures or
+# device hangs after resume.
+
+ACTION!="add", GOTO="usb_realtek_net_pm_end"
+SUBSYSTEM!="usb", GOTO="usb_realtek_net_pm_end"
+ENV{DEVTYPE}!="usb_device", GOTO="usb_realtek_net_pm_end"
+
+# RTL8156 / RTL8156B / RTL8157
+ATTR{idVendor}=="0bda", ATTR{idProduct}=="8156", ATTR{power/autosuspend_delay_ms}="-1"
+ATTR{idVendor}=="0bda", ATTR{idProduct}=="8157", ATTR{power/autosuspend_delay_ms}="-1"
+
+LABEL="usb_realtek_net_pm_end"
