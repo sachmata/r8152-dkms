@@ -1,6 +1,15 @@
---- a/r8152.c
-+++ b/r8152.c
-@@ -12697,12 +12697,22 @@
+--- a/r8152.c	2026-04-07 19:54:07.339956738 +0300
++++ b/r8152.c	2026-04-07 19:54:21.861104664 +0300
+@@ -5251,6 +5251,8 @@
+ 
+ 	if (enable) {
+ 		ret = r8153b_ups_flags(tp);
++		if (ret < 0)
++			goto out;
+ 
+ 		ret = ocp_byte_set_bits(tp, MCU_TYPE_USB, USB_POWER_CUT,
+ 					UPS_EN | USP_PREWAKE | PHASE2_EN);
+@@ -12697,12 +12699,22 @@
  	struct net_device *netdev = tp->netdev;
  	struct napi_struct *napi = &tp->napi;
  	u16 speed;
@@ -24,7 +33,7 @@
  			netif_stop_queue(netdev);
  			napi_disable(napi);
  			netif_carrier_on(netdev);
-@@ -12720,7 +12730,10 @@
+@@ -12720,7 +12732,10 @@
  			netif_carrier_off(netdev);
  			tasklet_disable(&tp->tx_tl);
  			napi_disable(napi);
@@ -36,7 +45,7 @@
  			napi_enable(napi);
  			tasklet_enable(&tp->tx_tl);
  			netif_info(tp, link, netdev, "carrier off\n");
-@@ -12746,7 +12759,7 @@
+@@ -12746,7 +12761,7 @@
  		if (tp->rtk_enable_diag)
  			goto link_chg_only;
  
@@ -45,7 +54,7 @@
  		goto out1;
  	}
  
-@@ -12772,13 +12785,16 @@
+@@ -12772,13 +12787,16 @@
  
  link_chg_only:
  	if (test_and_clear_bit(RTL8152_LINK_CHG, &tp->flags)) {
@@ -67,7 +76,7 @@
  		rtnl_unlock();
  		goto out1;
  	}
-@@ -29146,6 +29162,15 @@
+@@ -29146,6 +29164,15 @@
  	if (netif_running(netdev) && test_bit(WORK_ENABLE, &tp->flags)) {
  		u32 rcr = 0;
  
@@ -83,7 +92,7 @@
  		if (netif_carrier_ok(netdev)) {
  			u32 ocp_data;
  
-@@ -29167,19 +29192,19 @@
+@@ -29167,19 +29194,19 @@
  out3:
  				ocp_write_dword(tp, MCU_TYPE_PLA, PLA_RCR, rcr);
  out2:
@@ -108,7 +117,7 @@
  		tp->rtl_ops.autosuspend_en(tp, true);
  
  		if (netif_carrier_ok(netdev)) {
-@@ -32579,6 +32604,7 @@
+@@ -32579,6 +32606,7 @@
  		unregister_netdev(netdev);
  		netif_napi_del(&tp->napi);
  		tasklet_kill(&tp->tx_tl);
