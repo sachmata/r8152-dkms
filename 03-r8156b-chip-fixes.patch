@@ -1,0 +1,45 @@
+--- a/r8152.c
++++ b/r8152.c
+@@ -7150,6 +7150,12 @@
+ 				break;
+ 			usleep_range(1000, 2000);
+ 		}
++
++		if (ret >= 0 && i == 100) {
++			dev_err(&tp->intf->dev,
++				"flash loading timed out (GPHY_PATCH_DONE not set)\n");
++			ret = -ETIMEDOUT;
++		}
+ 	}
+ 
+ 	return ret;
+@@ -11444,6 +11450,10 @@
+ 	if (test_bit(RTL8152_UNPLUG, &tp->flags))
+ 		return -ENODEV;
+ 
++	ret = r8156_fc_parameter(tp);
++	if (ret < 0)
++		goto out;
++
+ 	set_tx_qlen(tp);
+ 	ret = rtl_set_eee_plus(tp);
+ 	if (ret < 0)
+@@ -11475,7 +11485,7 @@
+ 	if (ret < 0)
+ 		goto out;
+ 
+-	if (tp->udev->speed == USB_SPEED_HIGH) {
++	if (tp->udev->speed >= USB_SPEED_HIGH) {
+ 		if (is_flow_control(speed))
+ 			ret = ocp_word_w0w1(tp, MCU_TYPE_USB, USB_L1_CTRL,
+ 					    0xf, 0xf);
+@@ -28395,7 +28405,8 @@
+ 			goto out;
+ 	}
+ 
+-	usb_enable_lpm(tp->udev);
++	usb_disable_lpm(tp->udev);
++	usb_disable_ltm(tp->udev);
+ 
+ 	ret = rtl_fc_pause_pkt_en(tp);
+ 	if (ret < 0)

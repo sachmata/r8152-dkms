@@ -1,0 +1,155 @@
+--- a/r8152.c
++++ b/r8152.c
+@@ -1150,22 +1150,30 @@
+ int get_registers(struct r8152 *tp, u16 value, u16 index, u16 size, void *data)
+ {
+ 	int ret;
++	int i;
+ 	void *tmp;
+ 
+ 	tmp = kmalloc(size, GFP_KERNEL);
+ 	if (!tmp)
+ 		return -ENOMEM;
+ 
+-	ret = usb_control_msg(tp->udev, tp->pipe_ctrl_in,
+-			      RTL8152_REQ_GET_REGS, RTL8152_REQT_READ,
+-			      value, index, tmp, size, USB_CTRL_GET_TIMEOUT);
+-	if (ret < 0)
+-		memset(data, 0xff, size);
+-	else
+-		memcpy(data, tmp, size);
++	for (i = 0; i < 3; i++) {
++		ret = usb_control_msg(tp->udev, tp->pipe_ctrl_in,
++				      RTL8152_REQ_GET_REGS, RTL8152_REQT_READ,
++				      value, index, tmp, size,
++				      USB_CTRL_GET_TIMEOUT);
++		if (ret >= 0) {
++			memcpy(data, tmp, size);
++			goto out;
++		}
++		if (ret == -ENODEV || ret == -ESHUTDOWN)
++			break;
++		usleep_range(1000, 2000);
++	}
++	memset(data, 0xff, size);
+ 
++out:
+ 	kfree(tmp);
+-
+ 	return ret;
+ }
+ 
+@@ -1173,18 +1181,26 @@
+ int set_registers(struct r8152 *tp, u16 value, u16 index, u16 size, void *data)
+ {
+ 	int ret;
++	int i;
+ 	void *tmp;
+ 
+ 	tmp = kmemdup(data, size, GFP_KERNEL);
+ 	if (!tmp)
+ 		return -ENOMEM;
+ 
+-	ret = usb_control_msg(tp->udev, tp->pipe_ctrl_out,
+-			      RTL8152_REQ_SET_REGS, RTL8152_REQT_WRITE,
+-			      value, index, tmp, size, USB_CTRL_SET_TIMEOUT);
++	for (i = 0; i < 3; i++) {
++		ret = usb_control_msg(tp->udev, tp->pipe_ctrl_out,
++				      RTL8152_REQ_SET_REGS, RTL8152_REQT_WRITE,
++				      value, index, tmp, size,
++				      USB_CTRL_SET_TIMEOUT);
++		if (ret >= 0)
++			break;
++		if (ret == -ENODEV || ret == -ESHUTDOWN)
++			break;
++		usleep_range(1000, 2000);
++	}
+ 
+ 	kfree(tmp);
+-
+ 	return ret;
+ }
+ 
+@@ -2379,6 +2395,22 @@
+ 			netif_warn(tp, rx_err, netdev,
+ 				   "maybe reset is needed?\n");
+ 		break;
++	case -EOVERFLOW:
++		if (net_ratelimit())
++			netif_warn(tp, rx_err, netdev,
++				   "Rx overflow\n");
++		break;
++	case -EPIPE:
++		if (net_ratelimit())
++			netif_warn(tp, rx_err, netdev,
++				   "Rx endpoint halted, resetting\n");
++		usb_queue_reset_device(tp->intf);
++		return;
++	case -EILSEQ:
++		if (net_ratelimit())
++			netif_warn(tp, rx_err, netdev,
++				   "Rx CRC/bitstuff error\n");
++		break;
+ 	default:
+ 		if (net_ratelimit())
+ 			netif_warn(tp, rx_err, netdev,
+@@ -28956,6 +28988,7 @@
+ 	struct r8152 *tp = usb_get_intfdata(intf);
+ 	struct net_device *netdev;
+ 	struct sockaddr_storage ss;
++	int ret;
+ 
+ 	if (!tp)
+ 		return 0;
+@@ -28991,7 +29024,10 @@
+ 	napi_enable(&tp->napi);
+ 	tasklet_enable(&tp->tx_tl);
+ 	netif_wake_queue(netdev);
+-	usb_submit_urb(tp->intr_urb, GFP_KERNEL);
++	ret = usb_submit_urb(tp->intr_urb, GFP_KERNEL);
++	if (ret)
++		netif_warn(tp, ifup, netdev,
++			   "intr_urb submit failed: %d\n", ret);
+ 
+ 	if (!list_empty(&tp->rx_done))
+ 		napi_schedule(&tp->napi);
+@@ -29025,6 +29061,7 @@
+ static int rtl8152_runtime_resume(struct r8152 *tp)
+ {
+ 	struct net_device *netdev = tp->netdev;
++	int ret;
+ 
+ 	if (netif_running(netdev) && netdev->flags & IFF_UP) {
+ 		struct napi_struct *napi = &tp->napi;
+@@ -29055,7 +29092,10 @@
+ 			local_bh_enable();
+ 		}
+ 
+-		usb_submit_urb(tp->intr_urb, GFP_NOIO);
++		ret = usb_submit_urb(tp->intr_urb, GFP_NOIO);
++		if (ret)
++			netif_warn(tp, ifup, netdev,
++				   "intr_urb submit failed: %d\n", ret);
+ 	} else {
+ 		if (netdev->flags & IFF_UP)
+ 			tp->rtl_ops.autosuspend_en(tp, false);
+@@ -29070,6 +29110,7 @@
+ static int rtl8152_system_resume(struct r8152 *tp)
+ {
+ 	struct net_device *netdev = tp->netdev;
++	int ret;
+ 
+ 	netif_device_attach(netdev);
+ 
+@@ -29082,7 +29123,10 @@
+ 		if (test_and_clear_bit(RECOVER_SPEED, &tp->flags))
+ 			rtl8152_set_speed(tp, tp->autoneg, tp->speed,
+ 					  tp->duplex, tp->advertising);
+-		usb_submit_urb(tp->intr_urb, GFP_NOIO);
++		ret = usb_submit_urb(tp->intr_urb, GFP_NOIO);
++		if (ret)
++			netif_warn(tp, ifup, netdev,
++				   "intr_urb submit failed: %d\n", ret);
+ 	}
+ 
+ 	return 0;
