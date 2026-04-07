@@ -1,5 +1,59 @@
---- a/r8152.c	2026-04-07 19:54:07.339956738 +0300
+--- a/r8152.c	2026-04-08 01:29:54.674526499 +0300
 +++ b/r8152.c	2026-04-07 19:54:21.861104664 +0300
+@@ -1376,7 +1376,7 @@
+ 	int ret;
+ 
+ 	ret = generic_ocp_read(tp, index, sizeof(data), &data, type);
+-	WARN_ON_ONCE(ret != sizeof(data) && ret >= 0);
++	WARN_ON_ONCE(ret != sizeof(data));
+ 
+ 	*value = __le32_to_cpu(data);
+ 
+@@ -1390,7 +1390,7 @@
+ 
+ 	ret = generic_ocp_write(tp, index, BYTE_EN_DWORD, sizeof(tmp), &tmp,
+ 				type);
+-	WARN_ON_ONCE(ret != sizeof(tmp) && ret >= 0);
++	WARN_ON_ONCE(ret != sizeof(tmp));
+ 	return ret;
+ }
+ 
+@@ -1406,7 +1406,7 @@
+ 	byen <<= shift;
+ 
+ 	ret = generic_ocp_read(tp, index, sizeof(tmp), &tmp, type | byen);
+-	WARN_ON_ONCE(ret != sizeof(tmp) && ret >= 0);
++	WARN_ON_ONCE(ret != sizeof(tmp));
+ 
+ 	data = __le32_to_cpu(tmp);
+ 	data >>= (shift * 8);
+@@ -1436,7 +1436,7 @@
+ 	tmp = __cpu_to_le32(data);
+ 
+ 	ret = generic_ocp_write(tp, index, byen, sizeof(tmp), &tmp, type);
+-	WARN_ON_ONCE(ret != sizeof(tmp) && ret >= 0);
++	WARN_ON_ONCE(ret != sizeof(tmp));
+ 
+ 	return ret;
+ }
+@@ -1451,7 +1451,7 @@
+ 	index &= ~3;
+ 
+ 	ret = generic_ocp_read(tp, index, sizeof(tmp), &tmp, type);
+-	WARN_ON_ONCE(ret != sizeof(tmp) && ret >= 0);
++	WARN_ON_ONCE(ret != sizeof(tmp));
+ 
+ 	data = __le32_to_cpu(tmp);
+ 	data >>= (shift * 8);
+@@ -1481,7 +1481,7 @@
+ 	tmp = __cpu_to_le32(data);
+ 
+ 	ret = generic_ocp_write(tp, index, byen, sizeof(tmp), &tmp, type);
+-	WARN_ON_ONCE(ret != sizeof(tmp) && ret >= 0);
++	WARN_ON_ONCE(ret != sizeof(tmp));
+ 
+ 	return ret;
+ }
 @@ -5251,6 +5251,8 @@
  
  	if (enable) {
@@ -76,7 +130,31 @@
  		rtnl_unlock();
  		goto out1;
  	}
-@@ -29146,6 +29164,15 @@
+@@ -28990,7 +29008,7 @@
+ 	struct sockaddr_storage ss;
+ 	int ret;
+ 
+-	if (!tp || test_bit(RTL8152_UNPLUG, &tp->flags))
++	if (!tp)
+ 		return 0;
+ 
+ 	/* reset the MAC address in case of policy change */
+@@ -29015,13 +29033,7 @@
+ 	smp_mb__after_atomic();
+ 	if (netif_carrier_ok(netdev)) {
+ 		mutex_lock(&tp->control);
+-		ret = tp->rtl_ops.enable(tp);
+-		if (ret < 0) {
+-			mutex_unlock(&tp->control);
+-			set_bit(RTL8152_UNPLUG, &tp->flags);
+-			netif_device_detach(netdev);
+-			return ret;
+-		}
++		tp->rtl_ops.enable(tp);
+ 		rtl_start_rx(tp);
+ 		rtl8152_set_rx_mode(netdev);
+ 		mutex_unlock(&tp->control);
+@@ -29152,6 +29164,15 @@
  	if (netif_running(netdev) && test_bit(WORK_ENABLE, &tp->flags)) {
  		u32 rcr = 0;
  
@@ -92,7 +170,7 @@
  		if (netif_carrier_ok(netdev)) {
  			u32 ocp_data;
  
-@@ -29167,19 +29194,19 @@
+@@ -29173,19 +29194,19 @@
  out3:
  				ocp_write_dword(tp, MCU_TYPE_PLA, PLA_RCR, rcr);
  out2:
@@ -117,7 +195,7 @@
  		tp->rtl_ops.autosuspend_en(tp, true);
  
  		if (netif_carrier_ok(netdev)) {
-@@ -32579,6 +32606,7 @@
+@@ -32585,6 +32606,7 @@
  		unregister_netdev(netdev);
  		netif_napi_del(&tp->napi);
  		tasklet_kill(&tp->tx_tl);

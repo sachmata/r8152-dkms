@@ -1,5 +1,5 @@
 --- a/r8152.c	2025-11-28 17:15:54.000000000 +0200
-+++ b/r8152.c	2026-04-07 19:54:07.339956738 +0300
++++ b/r8152.c	2026-04-08 01:29:54.674526499 +0300
 @@ -1150,22 +1150,30 @@
  int get_registers(struct r8152 *tp, u16 value, u16 index, u16 size, void *data)
  {
@@ -70,6 +70,60 @@
  	return ret;
  }
  
+@@ -1360,7 +1376,7 @@
+ 	int ret;
+ 
+ 	ret = generic_ocp_read(tp, index, sizeof(data), &data, type);
+-	WARN_ON_ONCE(ret != sizeof(data));
++	WARN_ON_ONCE(ret != sizeof(data) && ret >= 0);
+ 
+ 	*value = __le32_to_cpu(data);
+ 
+@@ -1374,7 +1390,7 @@
+ 
+ 	ret = generic_ocp_write(tp, index, BYTE_EN_DWORD, sizeof(tmp), &tmp,
+ 				type);
+-	WARN_ON_ONCE(ret != sizeof(tmp));
++	WARN_ON_ONCE(ret != sizeof(tmp) && ret >= 0);
+ 	return ret;
+ }
+ 
+@@ -1390,7 +1406,7 @@
+ 	byen <<= shift;
+ 
+ 	ret = generic_ocp_read(tp, index, sizeof(tmp), &tmp, type | byen);
+-	WARN_ON_ONCE(ret != sizeof(tmp));
++	WARN_ON_ONCE(ret != sizeof(tmp) && ret >= 0);
+ 
+ 	data = __le32_to_cpu(tmp);
+ 	data >>= (shift * 8);
+@@ -1420,7 +1436,7 @@
+ 	tmp = __cpu_to_le32(data);
+ 
+ 	ret = generic_ocp_write(tp, index, byen, sizeof(tmp), &tmp, type);
+-	WARN_ON_ONCE(ret != sizeof(tmp));
++	WARN_ON_ONCE(ret != sizeof(tmp) && ret >= 0);
+ 
+ 	return ret;
+ }
+@@ -1435,7 +1451,7 @@
+ 	index &= ~3;
+ 
+ 	ret = generic_ocp_read(tp, index, sizeof(tmp), &tmp, type);
+-	WARN_ON_ONCE(ret != sizeof(tmp));
++	WARN_ON_ONCE(ret != sizeof(tmp) && ret >= 0);
+ 
+ 	data = __le32_to_cpu(tmp);
+ 	data >>= (shift * 8);
+@@ -1465,7 +1481,7 @@
+ 	tmp = __cpu_to_le32(data);
+ 
+ 	ret = generic_ocp_write(tp, index, byen, sizeof(tmp), &tmp, type);
+-	WARN_ON_ONCE(ret != sizeof(tmp));
++	WARN_ON_ONCE(ret != sizeof(tmp) && ret >= 0);
+ 
+ 	return ret;
+ }
 @@ -1883,7 +1899,7 @@
  {
  	int i, ret;
@@ -111,15 +165,33 @@
  	default:
  		if (net_ratelimit())
  			netif_warn(tp, rx_err, netdev,
-@@ -28956,6 +28988,7 @@
+@@ -28956,8 +28988,9 @@
  	struct r8152 *tp = usb_get_intfdata(intf);
  	struct net_device *netdev;
  	struct sockaddr_storage ss;
 +	int ret;
  
- 	if (!tp)
+-	if (!tp)
++	if (!tp || test_bit(RTL8152_UNPLUG, &tp->flags))
  		return 0;
-@@ -28991,7 +29024,10 @@
+ 
+ 	/* reset the MAC address in case of policy change */
+@@ -28982,7 +29015,13 @@
+ 	smp_mb__after_atomic();
+ 	if (netif_carrier_ok(netdev)) {
+ 		mutex_lock(&tp->control);
+-		tp->rtl_ops.enable(tp);
++		ret = tp->rtl_ops.enable(tp);
++		if (ret < 0) {
++			mutex_unlock(&tp->control);
++			set_bit(RTL8152_UNPLUG, &tp->flags);
++			netif_device_detach(netdev);
++			return ret;
++		}
+ 		rtl_start_rx(tp);
+ 		rtl8152_set_rx_mode(netdev);
+ 		mutex_unlock(&tp->control);
+@@ -28991,7 +29030,10 @@
  	napi_enable(&tp->napi);
  	tasklet_enable(&tp->tx_tl);
  	netif_wake_queue(netdev);
@@ -131,7 +203,7 @@
  
  	if (!list_empty(&tp->rx_done))
  		napi_schedule(&tp->napi);
-@@ -29025,6 +29061,7 @@
+@@ -29025,6 +29067,7 @@
  static int rtl8152_runtime_resume(struct r8152 *tp)
  {
  	struct net_device *netdev = tp->netdev;
@@ -139,7 +211,7 @@
  
  	if (netif_running(netdev) && netdev->flags & IFF_UP) {
  		struct napi_struct *napi = &tp->napi;
-@@ -29055,7 +29092,10 @@
+@@ -29055,7 +29098,10 @@
  			local_bh_enable();
  		}
  
@@ -151,7 +223,7 @@
  	} else {
  		if (netdev->flags & IFF_UP)
  			tp->rtl_ops.autosuspend_en(tp, false);
-@@ -29070,6 +29110,7 @@
+@@ -29070,6 +29116,7 @@
  static int rtl8152_system_resume(struct r8152 *tp)
  {
  	struct net_device *netdev = tp->netdev;
@@ -159,7 +231,7 @@
  
  	netif_device_attach(netdev);
  
-@@ -29082,7 +29123,10 @@
+@@ -29082,7 +29129,10 @@
  		if (test_and_clear_bit(RECOVER_SPEED, &tp->flags))
  			rtl8152_set_speed(tp, tp->autoneg, tp->speed,
  					  tp->duplex, tp->advertising);
