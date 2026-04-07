@@ -1,5 +1,5 @@
---- a/r8152.c	2026-04-07 23:05:32.053826046 +0300
-+++ b/r8152.c	2026-04-07 22:46:59.654041343 +0300
+--- a/r8152.c	2026-04-07 23:13:47.525656573 +0300
++++ b/r8152.c	2026-04-07 23:13:02.322167747 +0300
 @@ -5994,8 +5994,10 @@
  {
  	u32 ocp_data;
@@ -184,3 +184,17 @@
  
  		clear_bit(SELECTIVE_SUSPEND, &tp->flags);
  		smp_mb__after_atomic();
+@@ -30460,11 +30492,11 @@
+ 
+ 	mutex_unlock(&tp->control);
+ 
++	usb_autopm_put_interface(tp->intf);
++
+ 	if (bmcr < 0 || lcladv < 0 || rmtadv < 0)
+ 		return;
+ 
+-	usb_autopm_put_interface(tp->intf);
+-
+ 	if (!(bmcr & BMCR_ANENABLE)) {
+ 		pause->autoneg = 0;
+ 		pause->rx_pause = 0;
