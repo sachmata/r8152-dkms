@@ -1,0 +1,165 @@
+--- a/r8152.c	2026-04-09 16:09:17.534276847 +0300
++++ b/r8152.c	2026-04-09 16:16:39.724049297 +0300
+@@ -5437,6 +5437,19 @@
+ 			goto out;
+ 
+ 		if (ocp_data & PCUT_STATUS) {
++			int i;
++
++			for (i = 0; i < 500; i++) {
++				ret = ocp_read_word(tp, MCU_TYPE_PLA,
++						    PLA_BOOT_CTRL,
++						    &ocp_data);
++				if (ret < 0)
++					goto out;
++				if (ocp_data & AUTOLOAD_DONE)
++					break;
++				msleep(20);
++			}
++
+ 			tp->rtl_ops.hw_phy_cfg(tp);
+ 
+ 			ret = rtl8152_set_speed(tp, tp->autoneg, tp->speed,
+@@ -5578,8 +5591,11 @@
+ 
+ 		ret = ocp_word_set_bits(tp, MCU_TYPE_PLA, PLA_CONFIG34,
+ 					LINK_OFF_WAKE_EN);
+-		if (ret < 0)
++		if (ret < 0) {
++			ocp_write_byte(tp, MCU_TYPE_PLA, PLA_CRWECR,
++				       CRWECR_NORAML);
+ 			goto out;
++		}
+ 
+ 		ret = ocp_write_byte(tp, MCU_TYPE_PLA, PLA_CRWECR,
+ 				     CRWECR_NORAML);
+@@ -5595,8 +5611,11 @@
+ 
+ 		ret = ocp_word_clr_bits(tp, MCU_TYPE_PLA, PLA_CONFIG34,
+ 				  LINK_OFF_WAKE_EN);
+-		if (ret < 0)
++		if (ret < 0) {
++			ocp_write_byte(tp, MCU_TYPE_PLA, PLA_CRWECR,
++				       CRWECR_NORAML);
+ 			goto out;
++		}
+ 
+ 		ret = ocp_write_byte(tp, MCU_TYPE_PLA, PLA_CRWECR,
+ 				     CRWECR_NORAML);
+@@ -11505,6 +11524,15 @@
+ 	if (ret < 0)
+ 		goto out;
+ 
++	if (speed & _1000bps)
++		ret = ocp_write_word(tp, MCU_TYPE_PLA, PLA_EEE_TXTWSYS,
++				     0x11);
++	else if (speed & _500bps)
++		ret = ocp_write_word(tp, MCU_TYPE_PLA, PLA_EEE_TXTWSYS,
++				     0x3d);
++	if (ret < 0)
++		goto out;
++
+ 	if (tp->udev->speed == USB_SPEED_HIGH) {
+ 		if (is_flow_control(speed))
+ 			ret = ocp_word_w0w1(tp, MCU_TYPE_USB, USB_L1_CTRL,
+@@ -12350,9 +12378,9 @@
+ 	ret = r8153_aldps_en(tp, true);
+ 	if (ret < 0)
+ 		goto out;
+-	ret = r8153_u2p3en(tp, true);
+-	if (ret < 0)
+-		goto out;
++//	ret = r8153_u2p3en(tp, true);
++//	if (ret < 0)
++//		goto out;
+ 
+ 	/* Enable Clear_SDR */
+ 	ret = ocp_word_set_bits(tp, MCU_TYPE_USB, 0xd3ca, BIT(15));
+@@ -12812,6 +12840,7 @@
+ 
+ out1:
+ 	usb_autopm_put_interface(tp->intf);
++	return;
+ 
+ link_chg_only:
+ 	if (test_and_clear_bit(RTL8152_LINK_CHG, &tp->flags)) {
+@@ -12826,8 +12855,8 @@
+ 					      msecs_to_jiffies(10));
+ 		}
+ 		rtnl_unlock();
+-		goto out1;
+ 	}
++	usb_autopm_put_interface(tp->intf);
+ }
+ 
+ static inline void __rtl_hw_phy_work_func(struct r8152 *tp)
+@@ -13082,6 +13111,7 @@
+ 	return 0;
+ 
+ out_unwork:
++	tp->rtl_ops.down(tp);
+ 	clear_bit(WORK_ENABLE, &tp->flags);
+ out_unlock:
+ 	mutex_unlock(&tp->control);
+@@ -27478,8 +27508,12 @@
+ 		sram_write(tp, 0x80a1, 0x000b);
+ 		sram_write_w0w1(tp, 0x80a9, 0xff00, 0xc000);
+ 
+-		if (rtl_phy_patch_request(tp, true, true))
++		if (rtl_phy_patch_request(tp, true, true)) {
++			rtl_eee_enable(tp, tp->eee_en);
++			r8153_aldps_en(tp, true);
++			r8152b_enable_fc(tp);
+ 			return;
++		}
+ 
+ 		ocp_reg_clr_bits(tp, 0xb896, BIT(0));
+ 		ocp_reg_clr_bits(tp, 0xb892, 0xff00);
+@@ -27578,7 +27612,7 @@
+ 
+ 	r8153_aldps_en(tp, true);
+ 	r8152b_enable_fc(tp);
+-	r8153_u2p3en(tp, true);
++//	r8153_u2p3en(tp, true);
+ 
+ 	set_bit(PHY_RESET, &tp->flags);
+ }
+@@ -29348,12 +29382,21 @@
+ static int rtl8152_reset_resume(struct usb_interface *intf)
+ {
+ 	struct r8152 *tp = usb_get_intfdata(intf);
++	int ret;
+ 
+ 	clear_bit(SELECTIVE_SUSPEND, &tp->flags);
+ 	rtl_reset_ocp_base(tp);
+ 
+ 	mutex_lock(&tp->control);
+-	tp->rtl_ops.init(tp);
++
++	ret = tp->rtl_ops.init(tp);
++	if (ret < 0) {
++		mutex_unlock(&tp->control);
++		set_bit(RTL8152_UNPLUG, &tp->flags);
++		netif_device_detach(tp->netdev);
++		return ret;
++	}
++
+ 	queue_delayed_work(system_long_wq, &tp->hw_phy_work, 0);
+ 	set_ethernet_addr(tp, true);
+ 	mutex_unlock(&tp->control);
+@@ -31288,6 +31331,7 @@
+ 	case RTL_VER_12:
+ 	case RTL_VER_13:
+ 		tp->support_2500full	= 1;
++		tp->eee_adv2		= MDIO_EEE_2_5GT;
+ 		fallthrough;
+ 	case RTL_VER_15:
+ 		ops->init		= r8156b_init;
+@@ -31309,7 +31353,6 @@
+ 		tp->rx_buf_sz		= 48 * 1024;
+ 		tp->eee_en		= true;
+ 		tp->eee_adv		= MDIO_EEE_1000T | MDIO_EEE_100TX;
+-		tp->eee_adv2		= MDIO_EEE_2_5GT;
+ 		r8152_desc_init(tp);
+ 		break;
+ 
