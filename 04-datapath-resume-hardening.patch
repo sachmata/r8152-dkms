@@ -1,0 +1,34 @@
+--- a/r8152.c	2026-04-09 15:09:44.349764550 +0300
++++ b/r8152.c	2026-04-09 15:10:11.713035493 +0300
+@@ -3197,6 +3197,17 @@
+ 		spin_unlock(&tx_queue->lock);
+ 	}
+ 
++	if (unlikely(agg->skb_num == 0)) {
++		unsigned long flags;
++
++		spin_lock_irqsave(&tp->tx_lock, flags);
++		list_add_tail(&agg->list, &tp->tx_free);
++		spin_unlock_irqrestore(&tp->tx_lock, flags);
++
++		ret = 0;
++		goto out_tx_fill;
++	}
++
+ 	netif_tx_lock(netdev);
+ 
+ 	if (netif_queue_stopped(netdev) &&
+@@ -29340,9 +29351,13 @@
+ 
+ 	clear_bit(SELECTIVE_SUSPEND, &tp->flags);
+ 	rtl_reset_ocp_base(tp);
++
++	mutex_lock(&tp->control);
+ 	tp->rtl_ops.init(tp);
+ 	queue_delayed_work(system_long_wq, &tp->hw_phy_work, 0);
+ 	set_ethernet_addr(tp, true);
++	mutex_unlock(&tp->control);
++
+ 	return rtl8152_resume(intf);
+ }
+ 
