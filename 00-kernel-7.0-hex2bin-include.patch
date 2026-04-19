@@ -1,0 +1,26 @@
+Build fix: explicitly include <linux/hex.h> for hex2bin().
+
+Kernel 7.0 finishes cleaning up <linux/kernel.h> and no longer pulls in
+the hex2bin() prototype transitively. The driver calls hex2bin() in
+rtl8152_get_mac_pass() (r8152.c:2192) but relies on an indirect include,
+which breaks with:
+
+    r8152.c:2192:8: error: call to undeclared function 'hex2bin';
+    ISO C99 and later do not support implicit function declarations
+
+Add the explicit include, guarded by __has_include so older kernels that
+do not ship <linux/hex.h> as a standalone header keep working — in those
+kernels hex2bin() is still reachable via <linux/kernel.h>.
+
+--- a/r8152.c	2025-11-28 17:15:54.000000000 +0200
++++ b/r8152.c	2026-04-19 12:00:00.000000000 +0300
+@@ -30,6 +30,9 @@
+ #include <linux/suspend.h>
+ #include <linux/atomic.h>
+ #include <linux/acpi.h>
++#if __has_include(<linux/hex.h>)
++#include <linux/hex.h>
++#endif
+ #include "compatibility.h"
+
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,10)
