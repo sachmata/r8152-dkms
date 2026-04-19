@@ -1,5 +1,5 @@
 --- a/r8152.c	2026-04-19 03:45:45.860621253 +0300
-+++ b/r8152.c	2026-04-19 03:45:45.864091904 +0300
++++ b/r8152.c	2026-04-19 04:00:13.076961632 +0300
 @@ -5265,6 +5265,8 @@
  
  	if (enable) {
@@ -9,7 +9,7 @@
  
  		ret = ocp_byte_set_bits(tp, MCU_TYPE_USB, USB_POWER_CUT,
  					UPS_EN | USP_PREWAKE | PHASE2_EN);
-@@ -5438,6 +5440,19 @@
+@@ -5438,6 +5440,26 @@
  			goto out;
  
  		if (ocp_data & PCUT_STATUS) {
@@ -26,10 +26,17 @@
 +				msleep(20);
 +			}
 +
++			if (i == 500) {
++				dev_err(&tp->intf->dev,
++					"AUTOLOAD_DONE timeout after PCUT_STATUS (UPS disable)\n");
++				ret = -ETIMEDOUT;
++				goto out;
++			}
++
  			tp->rtl_ops.hw_phy_cfg(tp);
  
  			ret = rtl8152_set_speed(tp, tp->autoneg, tp->speed,
-@@ -5579,8 +5594,11 @@
+@@ -5579,8 +5601,11 @@
  
  		ret = ocp_word_set_bits(tp, MCU_TYPE_PLA, PLA_CONFIG34,
  					LINK_OFF_WAKE_EN);
@@ -42,7 +49,7 @@
  
  		ret = ocp_write_byte(tp, MCU_TYPE_PLA, PLA_CRWECR,
  				     CRWECR_NORAML);
-@@ -5596,8 +5614,11 @@
+@@ -5596,8 +5621,11 @@
  
  		ret = ocp_word_clr_bits(tp, MCU_TYPE_PLA, PLA_CONFIG34,
  				  LINK_OFF_WAKE_EN);
@@ -55,8 +62,16 @@
  
  		ret = ocp_write_byte(tp, MCU_TYPE_PLA, PLA_CRWECR,
  				     CRWECR_NORAML);
-@@ -5787,7 +5808,7 @@
+@@ -5782,12 +5810,12 @@
+ 		if (ret < 0)
  			goto out;
+ 
+-		ret = r8153_u2p3en(tp, true);
+-		if (ret < 0)
+-			goto out;
++//		ret = r8153_u2p3en(tp, true);
++//		if (ret < 0)
++//			goto out;
  
  		if (tp->udev->speed >= USB_SPEED_SUPER)
 -			ret = r8153b_u1u2en(tp, true);
@@ -64,7 +79,7 @@
  	}
  
  out:
-@@ -6006,8 +6027,10 @@
+@@ -6006,8 +6034,10 @@
  {
  	u32 ocp_data;
  
@@ -76,7 +91,7 @@
  	if (new_ver > ocp_data)
  		return true;
  	else
-@@ -6044,9 +6067,13 @@
+@@ -6044,9 +6074,13 @@
  			break;
  	}
  
@@ -93,7 +108,7 @@
  		return -ETIME;
  	}
  
-@@ -7155,7 +7182,7 @@
+@@ -7155,7 +7189,7 @@
  	if (r8156b_flash_used(tp)) {
  		int i;
  
@@ -102,7 +117,7 @@
  			u32 ocp_data;
  
  			ret = ocp_read_word(tp, MCU_TYPE_USB, USB_GPHY_CTRL,
-@@ -7164,6 +7191,12 @@
+@@ -7164,6 +7198,12 @@
  				break;
  			usleep_range(1000, 2000);
  		}
@@ -115,7 +130,7 @@
  	}
  
  	return ret;
-@@ -10737,7 +10770,6 @@
+@@ -10737,7 +10777,6 @@
  		sram_write(tp, 0x80c9, 0x3478);
  		sram_write(tp, 0x80d0, 0xfe8f);
  		sram_write(tp, 0x80ca, 0x7843);
@@ -123,7 +138,7 @@
  		sram_write(tp, 0x80cb, 0x4380);
  		sram_write(tp, 0x80cc, 0xb00b);
  		sram_write(tp, 0x80cd, 0x0ba1);
-@@ -10885,7 +10917,8 @@
+@@ -10885,7 +10924,8 @@
  		}
  	}
  
@@ -133,7 +148,7 @@
  
  out:
  	return ret;
-@@ -10993,7 +11026,7 @@
+@@ -10993,7 +11033,7 @@
  
  	ret = r8153_phy_status(tp, 0);
  	if (ret < 0)
@@ -142,7 +157,7 @@
  
  	switch (ret) {
  	case PHY_STAT_PWRDN:
-@@ -11028,7 +11061,7 @@
+@@ -11028,7 +11068,7 @@
  	 */
  	ret = ocp_reg_read(tp, 0xc426, &data);
  	if (ret < 0)
@@ -151,7 +166,7 @@
  
  	ocp_data = data & 0x3fff;
  	if (ocp_data) {
-@@ -11038,7 +11071,7 @@
+@@ -11038,7 +11078,7 @@
  		ret = ocp_word_w0w1(tp, MCU_TYPE_USB, USB_UPS_CFG, SAW_CNT_1MS_MASK,
  				    swr_cnt_1ms_ini);
  		if (ret < 0)
@@ -160,7 +175,7 @@
  	}
  
  	ocp_word_set_bits(tp, MCU_TYPE_PLA, PLA_PHY_PWR, PFM_PWM_SWITCH);
-@@ -11066,6 +11099,7 @@
+@@ -11066,6 +11106,7 @@
  		rtl_phy_patch_request(tp, false, true);
  	}
  
@@ -168,7 +183,7 @@
  	if (tp->eee_en)
  		rtl_eee_enable(tp, true);
  
-@@ -11458,6 +11492,10 @@
+@@ -11458,6 +11499,10 @@
  	if (test_bit(RTL8152_UNPLUG, &tp->flags))
  		return -ENODEV;
  
@@ -179,7 +194,7 @@
  	set_tx_qlen(tp);
  	ret = rtl_set_eee_plus(tp);
  	if (ret < 0)
-@@ -11489,6 +11527,15 @@
+@@ -11489,6 +11534,15 @@
  	if (ret < 0)
  		goto out;
  
@@ -195,7 +210,7 @@
  	if (tp->udev->speed == USB_SPEED_HIGH) {
  		if (is_flow_control(speed))
  			ret = ocp_word_w0w1(tp, MCU_TYPE_USB, USB_L1_CTRL,
-@@ -12334,9 +12381,9 @@
+@@ -12334,9 +12388,9 @@
  	ret = r8153_aldps_en(tp, true);
  	if (ret < 0)
  		goto out;
@@ -208,7 +223,7 @@
  
  	/* Enable Clear_SDR */
  	ret = ocp_word_set_bits(tp, MCU_TYPE_USB, 0xd3ca, BIT(15));
-@@ -12344,7 +12391,7 @@
+@@ -12344,7 +12398,7 @@
  		goto out;
  
  	if (tp->udev->speed >= USB_SPEED_SUPER)
@@ -217,7 +232,7 @@
  
  out:
  	return ret;
-@@ -27297,7 +27344,13 @@
+@@ -27297,7 +27351,13 @@
  		break;
  	case RTL_VER_13:
  	case RTL_VER_15:
@@ -232,7 +247,7 @@
  		break;
  	default:
  		break;
-@@ -27327,6 +27380,9 @@
+@@ -27327,6 +27387,9 @@
  	/* disable ALDPS before updating the PHY parameters */
  	r8153_aldps_en(tp, false);
  
@@ -242,7 +257,7 @@
  	ret = r8153_phy_status(tp, PHY_STAT_LAN_ON);
  	if (ret < 0)
  		return;
-@@ -27437,8 +27493,12 @@
+@@ -27437,8 +27500,12 @@
  		sram_write(tp, 0x80a1, 0x000b);
  		sram_write_w0w1(tp, 0x80a9, 0xff00, 0xc000);
  
@@ -256,7 +271,7 @@
  
  		ocp_reg_clr_bits(tp, 0xb896, BIT(0));
  		ocp_reg_clr_bits(tp, 0xb892, 0xff00);
-@@ -27537,7 +27597,7 @@
+@@ -27537,7 +27604,7 @@
  
  	r8153_aldps_en(tp, true);
  	r8152b_enable_fc(tp);
@@ -265,7 +280,7 @@
  
  	set_bit(PHY_RESET, &tp->flags);
  }
-@@ -28181,12 +28241,13 @@
+@@ -28181,12 +28248,13 @@
  		goto out;
  
  	if (tp->udev->speed >= USB_SPEED_SUPER) {
@@ -281,7 +296,7 @@
  
  //	ret = ocp_read_word(tp, MCU_TYPE_USB, 0xd850, &ocp_data);
  //	if (ret < 0)
-@@ -28388,12 +28449,13 @@
+@@ -28388,12 +28456,13 @@
  		goto out;
  
  	if (tp->udev->speed >= USB_SPEED_SUPER) {
@@ -297,7 +312,7 @@
  
  	ret = rtl_fc_pause_pkt_en(tp);
  	if (ret < 0)
-@@ -31209,6 +31271,7 @@
+@@ -31209,6 +31278,7 @@
  	case RTL_VER_12:
  	case RTL_VER_13:
  		tp->support_2500full	= 1;
@@ -305,7 +320,7 @@
  		fallthrough;
  	case RTL_VER_15:
  		ops->init		= r8156b_init;
-@@ -31230,7 +31293,6 @@
+@@ -31230,7 +31300,6 @@
  		tp->rx_buf_sz		= 48 * 1024;
  		tp->eee_en		= true;
  		tp->eee_adv		= MDIO_EEE_1000T | MDIO_EEE_100TX;
