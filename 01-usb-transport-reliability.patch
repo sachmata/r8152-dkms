@@ -1,16 +1,16 @@
---- a/r8152.c	2025-11-28 17:15:54.000000000 +0200
-+++ b/r8152.c	2026-04-09 17:00:00.000000000 +0300
-@@ -1150,22 +1150,30 @@
+--- a/r8152.c	2026-04-19 03:45:48.202111868 +0300
++++ b/r8152.c	2026-04-19 03:45:45.860621253 +0300
+@@ -1153,22 +1153,30 @@
  int get_registers(struct r8152 *tp, u16 value, u16 index, u16 size, void *data)
  {
  	int ret;
 +	int i;
  	void *tmp;
-
+ 
  	tmp = kmalloc(size, GFP_KERNEL);
  	if (!tmp)
  		return -ENOMEM;
-
+ 
 -	ret = usb_control_msg(tp->udev, tp->pipe_ctrl_in,
 -			      RTL8152_REQ_GET_REGS, RTL8152_REQT_READ,
 -			      value, index, tmp, size, USB_CTRL_GET_TIMEOUT);
@@ -32,24 +32,24 @@
 +		usleep_range(1000, 2000);
 +	}
 +	memset(data, 0xff, size);
-
+ 
 +out:
  	kfree(tmp);
 -
  	return ret;
  }
-
-@@ -1173,18 +1181,26 @@
+ 
+@@ -1176,18 +1184,26 @@
  int set_registers(struct r8152 *tp, u16 value, u16 index, u16 size, void *data)
  {
  	int ret;
 +	int i;
  	void *tmp;
-
+ 
  	tmp = kmemdup(data, size, GFP_KERNEL);
  	if (!tmp)
  		return -ENOMEM;
-
+ 
 -	ret = usb_control_msg(tp->udev, tp->pipe_ctrl_out,
 -			      RTL8152_REQ_SET_REGS, RTL8152_REQT_WRITE,
 -			      value, index, tmp, size, USB_CTRL_SET_TIMEOUT);
@@ -64,85 +64,85 @@
 +			break;
 +		usleep_range(1000, 2000);
 +	}
-
+ 
  	kfree(tmp);
 -
  	return ret;
  }
-
-@@ -1360,7 +1376,7 @@
+ 
+@@ -1363,7 +1379,7 @@
  	int ret;
-
+ 
  	ret = generic_ocp_read(tp, index, sizeof(data), &data, type);
 -	WARN_ON_ONCE(ret != sizeof(data));
 +	WARN_ON_ONCE(ret != sizeof(data) && ret >= 0);
-
+ 
  	*value = __le32_to_cpu(data);
-
-@@ -1374,7 +1390,7 @@
-
+ 
+@@ -1377,7 +1393,7 @@
+ 
  	ret = generic_ocp_write(tp, index, BYTE_EN_DWORD, sizeof(tmp), &tmp,
  				type);
 -	WARN_ON_ONCE(ret != sizeof(tmp));
 +	WARN_ON_ONCE(ret != sizeof(tmp) && ret >= 0);
  	return ret;
  }
-
-@@ -1390,7 +1406,7 @@
+ 
+@@ -1393,7 +1409,7 @@
  	byen <<= shift;
-
+ 
  	ret = generic_ocp_read(tp, index, sizeof(tmp), &tmp, type | byen);
 -	WARN_ON_ONCE(ret != sizeof(tmp));
 +	WARN_ON_ONCE(ret != sizeof(tmp) && ret >= 0);
-
+ 
  	data = __le32_to_cpu(tmp);
  	data >>= (shift * 8);
-@@ -1420,7 +1436,7 @@
+@@ -1423,7 +1439,7 @@
  	tmp = __cpu_to_le32(data);
-
+ 
  	ret = generic_ocp_write(tp, index, byen, sizeof(tmp), &tmp, type);
 -	WARN_ON_ONCE(ret != sizeof(tmp));
 +	WARN_ON_ONCE(ret != sizeof(tmp) && ret >= 0);
-
+ 
  	return ret;
  }
-@@ -1435,7 +1451,7 @@
+@@ -1438,7 +1454,7 @@
  	index &= ~3;
-
+ 
  	ret = generic_ocp_read(tp, index, sizeof(tmp), &tmp, type);
 -	WARN_ON_ONCE(ret != sizeof(tmp));
 +	WARN_ON_ONCE(ret != sizeof(tmp) && ret >= 0);
-
+ 
  	data = __le32_to_cpu(tmp);
  	data >>= (shift * 8);
-@@ -1465,7 +1481,7 @@
+@@ -1468,7 +1484,7 @@
  	tmp = __cpu_to_le32(data);
-
+ 
  	ret = generic_ocp_write(tp, index, byen, sizeof(tmp), &tmp, type);
 -	WARN_ON_ONCE(ret != sizeof(tmp));
 +	WARN_ON_ONCE(ret != sizeof(tmp) && ret >= 0);
-
+ 
  	return ret;
  }
-@@ -1883,7 +1899,7 @@
+@@ -1886,7 +1902,7 @@
  {
  	int i, ret;
-
+ 
 -	for (i = 0; i < 10; i++) {
 +	for (i = 0; i < 50; i++) {
  		u32 ocp_data;
-
+ 
  		ret = ocp_read_word(tp, MCU_TYPE_USB, USB_ADV_CMD, &ocp_data);
-@@ -1894,7 +1910,7 @@
+@@ -1897,7 +1913,7 @@
  		usleep_range(1000, 2000);
  	}
-
+ 
 -	if (i == 10)
 +	if (i == 50)
  		ret = -ETIMEDOUT;
-
+ 
  	return ret;
-@@ -2379,6 +2395,22 @@
+@@ -2382,6 +2398,22 @@
  			netif_warn(tp, rx_err, netdev,
  				   "maybe reset is needed?\n");
  		break;
@@ -165,10 +165,10 @@
  	default:
  		if (net_ratelimit())
  			netif_warn(tp, rx_err, netdev,
-@@ -3165,6 +3197,17 @@
+@@ -3168,6 +3200,17 @@
  		spin_unlock(&tx_queue->lock);
  	}
-
+ 
 +	if (unlikely(agg->skb_num == 0)) {
 +		unsigned long flags;
 +
@@ -181,5 +181,5 @@
 +	}
 +
  	netif_tx_lock(netdev);
-
+ 
  	if (netif_queue_stopped(netdev) &&
