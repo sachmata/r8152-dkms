@@ -6,6 +6,7 @@ _pkgbase=r8152
 pkgname=${_pkgbase}-dkms
 pkgver=2.21.4
 pkgrel=17
+epoch=1
 pkgdesc='A kernel module for Realtek RTL8152/RTL8153/RTL8154/RTL8156 Based USB Ethernet Adapters'
 url='http://www.realtek.com'
 license=('GPL-2.0-only')
